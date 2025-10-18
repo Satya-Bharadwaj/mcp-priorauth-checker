@@ -2,9 +2,9 @@
 
 ### Overview
 `priorauth-checker` is a **TypeScript-based Model Context Protocol (MCP)** server that retrieves **CMS National Coverage Determination (NCD)** policy data for prior authorization and coverage eligibility workflows.  
-It fetches official Medicare policy metadata by **NCD ID**, **version**, or **title**, using either a **built-in lookup table** or the **CMS Coverage API** for live policy retrieval.
+It fetches official Medicare policy by **NCD ID**, **version**, or **title**, using a **lookup table** and the **CMS Coverage API** for live policy retrieval.
 
-This tool forms the **second stage** of the pipeline:  
+This tool forms the **second stage** of the assessment pipeline:  
 → *Structured clinical note (via raw2structured)* → **priorauth-checker** → *CMS coverage validation + reasoning*
 
 ---
@@ -25,7 +25,7 @@ This tool forms the **second stage** of the pipeline:
 | Layer | Description |
 |-------|--------------|
 | **MCP Server** | Implements the `fetch_ncd_policy` tool using the MCP standard |
-| **Lookup Table** | Hardcoded reference table for quick NCD ID/version resolution |
+| **Lookup Table** | Hardcoded reference table for quick NCD ID/version resolution or query_param_lookup.csv |
 | **CMS Fetcher** | Retrieves live NCD data from `https://api.coverage.cms.gov/v1/data/ncd/` |
 | **Cleaner Utility** | Strips HTML and normalizes whitespace for clean text output |
 | **Transport Layer** | Uses `StdioServerTransport` for MCP-based communication |
