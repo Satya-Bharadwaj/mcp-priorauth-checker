@@ -1,0 +1,43 @@
+{
+  "name": "latitude_health",
+  "version": "1.0.0",
+  "description": "MCP server and client for structuring unstructured clinical notes and mapping them into FHIR-like resources.",
+  "type": "module",
+  "main": "./build/index.js",
+  "bin": {
+    "clinical2fhir": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc && chmod 755 build/index.js",
+    "start": "node build/index.js",
+    "start:mcp-client": "node build/client/MCPClient.js",
+    "dev:mcp-client": "ts-node src/client/MCPClient.ts",
+    "test": "echo \"No test specified\" && exit 0"
+  },
+  "files": [
+    "build"
+  ],
+  "keywords": [
+    "FHIR",
+    "MCP",
+    "LatitudeHealth",
+    "clinical-notes",
+    "LLM",
+    "healthcare",
+    "Anthropic",
+    "Claude"
+  ],
+  "author": "Satya Bharadwaj Pakki",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.23.0",
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "dotenv": "^16.4.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
