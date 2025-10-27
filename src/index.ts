@@ -1,6 +1,21 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import Database from "better-sqlite3";
+
+/* -------------------------------------------------------------------------- */
+/*  DATABASE SETUP                                                            */
+/* -------------------------------------------------------------------------- */
+const DB_PATH = "/Users/satyabharadwaj/Documents/latitude_health/ncd_lookup.db";
+let db: Database.Database;
+
+try {
+  db = new Database(DB_PATH, { readonly: true });
+  console.error(`✅ Connected to SQLite database at ${DB_PATH}`);
+} catch (err) {
+  console.error(`❌ Failed to open database: ${(err as Error).message}`);
+  process.exit(1);
+}
 
 /* -------------------------------------------------------------------------- */
 /*  TYPES                                                                     */
@@ -20,21 +35,11 @@ interface NCDResponse {
   error?: string;
 }
 
-interface LookupRow {
+interface NCDLookupRow {
   NCD_mnl_sect_title: string;
   NCD_id: string;
   NCD_vrsn_num: string;
 }
-
-/* -------------------------------------------------------------------------- */
-/*  BUILT-IN LOOKUP TABLE                                                     */
-/* -------------------------------------------------------------------------- */
-const lookupTable: LookupRow[] = [
-  { NCD_mnl_sect_title: "Lumbar Artificial Disc Replacement", NCD_id: "313", NCD_vrsn_num: "2" },
-  { NCD_mnl_sect_title: "Electrical Nerve Stimulators", NCD_id: "240", NCD_vrsn_num: "1" },
-];
-
-console.error(`✅ Loaded ${lookupTable.length} built-in NCD entries`);
 
 /* -------------------------------------------------------------------------- */
 /*  MCP SERVER SETUP                                                          */
@@ -50,6 +55,17 @@ const server = new McpServer({
 /* -------------------------------------------------------------------------- */
 function stripHtml(html: string = ""): string {
   return html.replace(/<\/?[^>]+(>|$)/g, "").replace(/\s+/g, " ").trim();
+}
+
+function lookupNCDFromDB(title: string): NCDLookupRow | undefined {
+  const stmt = db.prepare(`
+    SELECT NCD_mnl_sect_title, NCD_id, NCD_vrsn_num
+    FROM ncd_lookup
+    WHERE LOWER(NCD_mnl_sect_title) LIKE LOWER(?)
+    LIMIT 1
+  `);
+  const result = stmt.get(`%${title}%`) as NCDLookupRow | undefined;
+  return result;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -74,7 +90,7 @@ async function fetchNCDData(ncdid: string, ncdver: string): Promise<NCDResponse>
 /* -------------------------------------------------------------------------- */
 server.tool(
   "fetch_ncd_policy",
-  "Fetch CMS NCD policy using either title or direct ID/version (built-in lookup).",
+  "Fetch CMS NCD policy using either title or direct ID/version (database lookup).",
   {
     ncd_id: z.string().optional(),
     ncd_ver: z.string().optional(),
@@ -84,22 +100,15 @@ server.tool(
     let resolvedId = ncd_id;
     let resolvedVer = ncd_ver;
 
-    // 🔍 Step 1: Lookup from built-in table if title is provided
+    // 🔍 Step 1: Lookup in SQLite DB if title provided
     if (!resolvedId && title) {
-      const normalizedTitle = title.trim().toLowerCase();
-      const match = lookupTable.find(row => {
-        const t = row.NCD_mnl_sect_title.toLowerCase();
-        return t.includes(normalizedTitle) || normalizedTitle.includes(t);
-      });
-
-      if (match) {
-        resolvedId = match.NCD_id;
-        resolvedVer = match.NCD_vrsn_num;
+      const row = lookupNCDFromDB(title);
+      if (row) {
+        resolvedId = row.NCD_id;
+        resolvedVer = row.NCD_vrsn_num;
         console.error(`✅ Matched title "${title}" → NCD ${resolvedId} v${resolvedVer}`);
       } else {
-        return {
-          content: [{ type: "text", text: `⚠️ No built-in match found for "${title}"` }],
-        };
+        return { content: [{ type: "text", text: `⚠️ No database match found for "${title}"` }] };
       }
     }
 
@@ -108,7 +117,7 @@ server.tool(
       return { content: [{ type: "text", text: "Missing NCD ID or version." }] };
     }
 
-    // 📄 Step 3: Fetch from CMS
+    // 📄 Step 3: Fetch from CMS API
     console.error(`⚙️ Retrieving NCD ${resolvedId} v${resolvedVer}`);
     const ncdData = await fetchNCDData(resolvedId, resolvedVer);
     if (ncdData.error) {
@@ -143,4 +152,4 @@ server.tool(
 /* -------------------------------------------------------------------------- */
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error("🚀 MCP server 'priorauth-checker' running — built-in lookup active");
+console.error("🚀 MCP server 'priorauth-checker' running — database lookup active");
