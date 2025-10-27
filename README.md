@@ -1,22 +1,23 @@
 # 🏥 MCP Tool: priorauth-checker
 
 ### Overview
-`priorauth-checker` is a **TypeScript-based Model Context Protocol (MCP)** server that retrieves **CMS National Coverage Determination (NCD)** policy data for prior authorization and coverage eligibility workflows.  
-It fetches official Medicare policy by **NCD ID**, **version**, or **title**, using a **lookup table** and the **CMS Coverage API** for live policy retrieval.
+`priorauth-checker` is a **Model Context Protocol (MCP)** server implemented in **TypeScript**.  
+It retrieves **CMS National Coverage Determination (NCD)** policy data for prior authorization and coverage eligibility workflows.  
+The tool uses a **local SQLite database** for fast lookup and the **CMS Coverage API** for live retrieval of policy details.
 
-This tool forms the **second stage** of the assessment pipeline:  
+This project is part of a healthcare automation workflow:  
 → *Structured clinical note (via raw2structured)* → **priorauth-checker** → *CMS coverage validation + reasoning*
 
 ---
 
-## 🧩 Features
+## 🧩 Key Features
 
-- 🔗 **Live CMS Coverage API integration** for NCD data retrieval  
-- 🧠 **Built-in lookup table** for offline or fallback matching (e.g., Lumbar Disc Replacement, Electrical Nerve Stimulators)  
-- ⚙️ **Single MCP tool** `fetch_ncd_policy` supporting both title-based and ID-based lookups  
-- 🧩 **HTML cleaning and normalization** for model-friendly output  
-- 🧰 **MCP-compliant server** built with `@modelcontextprotocol/sdk` and `zod`  
-- 🪶 Lightweight and deterministic — ideal for embedding in LLM pipelines
+- 🔍 **SQLite-backed lookup** of NCD policies using local database (`ncd_lookup.db`)  
+- 🔗 **CMS Coverage API integration** for real-time policy retrieval  
+- 🧠 **Automatic title → ID/version resolution** using SQL `LIKE` queries  
+- 🧹 **HTML cleaning** for model-friendly output  
+- ⚙️ **MCP-compliant server** using `@modelcontextprotocol/sdk` and `zod`  
+- 🪶 Lightweight and deterministic for LLM pipelines  
 
 ---
 
@@ -24,11 +25,11 @@ This tool forms the **second stage** of the assessment pipeline:
 
 | Layer | Description |
 |-------|--------------|
-| **MCP Server** | Implements the `fetch_ncd_policy` tool using the MCP standard |
-| **Lookup Table** | Hardcoded reference table for quick NCD ID/version resolution or query_param_lookup.csv |
-| **CMS Fetcher** | Retrieves live NCD data from `https://api.coverage.cms.gov/v1/data/ncd/` |
-| **Cleaner Utility** | Strips HTML and normalizes whitespace for clean text output |
-| **Transport Layer** | Uses `StdioServerTransport` for MCP-based communication |
+| **MCP Server** | Uses `McpServer` to define the `fetch_ncd_policy` tool |
+| **SQLite Database** | Local `ncd_lookup.db` stores NCD title → ID/version mapping |
+| **Fetcher** | Retrieves live CMS data from `https://api.coverage.cms.gov/v1/data/ncd/` |
+| **Cleaner** | Removes HTML and extra whitespace for consistent text |
+| **Transport Layer** | Uses `StdioServerTransport` for MCP I/O |
 
 ---
 
@@ -46,6 +47,9 @@ npm install
 npm run build
 ```
 
+Ensure the SQLite database path is valid in your system:  
+`/Users/<username>/Documents/latitude_health/ncd_lookup.db`
+
 ---
 
 ## 🚀 Running the MCP Server
@@ -54,44 +58,51 @@ npm run build
 npm start
 ```
 or manually:
-
 ```bash
 node build/index.js
 ```
 
-Expected console output:
+**Expected Console Output:**
 ```
-✅ Loaded 2 built-in NCD entries
-🚀 MCP server 'priorauth-checker' running — built-in lookup active
+✅ Connected to SQLite database at /Users/<username>/Documents/latitude_health/ncd_lookup.db
+🚀 MCP server 'priorauth-checker' running — database lookup active
 ```
 
 ---
 
 ## 🧩 Exposed MCP Tool
 
-| Tool Name | Description |
-|------------|--------------|
-| `fetch_ncd_policy` | Fetches a CMS NCD policy using either title or direct ID/version parameters. |
+### Tool Name: `fetch_ncd_policy`
 
-### **Parameters**
+**Description:**  
+Fetches CMS NCD policy data using either a **title-based** database lookup or direct **ID/version** query.
+
 | Parameter | Type | Required | Description |
 |------------|------|-----------|--------------|
-| `ncd_id` | string | Optional | NCD numeric identifier (e.g., `"360"`) |
-| `ncd_ver` | string | Optional | Version number (e.g., `"2"`) |
-| `title` | string | Optional | Policy title (used for lookup fallback) |
+| `ncd_id` | string | Optional | NCD numeric identifier (e.g., `"240"`) |
+| `ncd_ver` | string | Optional | Version number (e.g., `"1"`) |
+| `title` | string | Optional | Policy title for SQLite lookup |
 
 ---
 
 ## 🧠 Example Usage
 
-### **1️⃣ Query by Title**
+### 1️⃣ Query by Title
+
+**Input:**
 ```json
 {
   "title": "Electrical Nerve Stimulators"
 }
 ```
 
-**Response**
+**Console Log:**
+```
+✅ Matched title "Electrical Nerve Stimulators" → NCD 240 v1
+⚙️ Retrieving NCD 240 v1
+```
+
+**Response:**
 ```json
 {
   "document_id": "240",
@@ -106,7 +117,9 @@ Expected console output:
 
 ---
 
-### **2️⃣ Query by ID and Version**
+### 2️⃣ Query by ID and Version
+
+**Input:**
 ```json
 {
   "ncd_id": "313",
@@ -114,7 +127,12 @@ Expected console output:
 }
 ```
 
-**Response**
+**Console Log:**
+```
+⚙️ Retrieving NCD 313 v2
+```
+
+**Response:**
 ```json
 {
   "document_id": "313",
@@ -129,13 +147,28 @@ Expected console output:
 
 ---
 
-## 🧠 Design Rationale
+## 🧠 How It Works
 
-- **Transparency:** Returns normalized JSON with clean text and traceable sources  
-- **Reliability:** Uses deterministic lookups and clear API fallbacks  
-- **Modularity:** Functions independently or as a downstream MCP service  
-- **Interoperability:** Aligns with CMS Coverage API and MCP protocol conventions  
-- **Auditability:** Logs all lookups and fetch requests to `stderr` for traceability  
+1. **SQLite Title Lookup**  
+   Searches for NCD ID/version in local DB:
+   ```sql
+   SELECT NCD_mnl_sect_title, NCD_id, NCD_vrsn_num
+   FROM ncd_lookup
+   WHERE LOWER(NCD_mnl_sect_title) LIKE LOWER('%<title>%')
+   LIMIT 1;
+   ```
+
+2. **CMS Fetch**  
+   Retrieves policy data from CMS Coverage API:
+   ```bash
+   https://api.coverage.cms.gov/v1/data/ncd/?ncdid=<id>&ncdver=<version>
+   ```
+
+3. **HTML Cleaning**  
+   Uses regex to remove tags and compress whitespace.
+
+4. **JSON Output**  
+   Returns structured policy object with cleaned text.
 
 ---
 
@@ -143,11 +176,9 @@ Expected console output:
 
 ```
 mcp-priorauth-checker/
-├── build/
-│   └── index.js                  # Compiled JavaScript MCP server
 ├── src/
-│   └── index.ts                  # TypeScript MCP implementation
-├── node_modules/
+│   └── index.ts                # Main MCP server
+├── ncd_lookup.db               # SQLite database for title → ID mapping
 ├── package.json
 ├── package-lock.json
 ├── tsconfig.json
@@ -157,5 +188,15 @@ mcp-priorauth-checker/
 
 ---
 
-## 🔗 Related Repository
+## 🧩 Dependencies
+
+- **Node.js** ≥ 20  
+- **better-sqlite3** — for local DB lookups  
+- **@modelcontextprotocol/sdk** — MCP runtime  
+- **zod** — schema validation  
+- **TypeScript** — build/runtime safety  
+
+---
+
+## 🔗 Related Repositories
 - [mcp-raw2structured](https://github.com/Satya-Bharadwaj/mcp-raw2structured)
